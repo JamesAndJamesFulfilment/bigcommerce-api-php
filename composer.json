@@ -1,5 +1,5 @@
 {
-    "name": "bigcommerce/api",
+    "name": "james-and-james-fulfilment/bigcommerce-api",
     "type": "library",
     "description": "Enables PHP applications to communicate with the Bigcommerce API.",
     "keywords": [
