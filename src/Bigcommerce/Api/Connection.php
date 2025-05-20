@@ -2,6 +2,8 @@
 
 namespace Bigcommerce\Api;
 
+use CurlHandle;
+
 /**
  * HTTP connection.
  */
@@ -21,19 +23,25 @@ class Connection
     const MEDIA_TYPE_WWW = 'application/x-www-form-urlencoded';
 
     /**
-     * @var resource cURL resource
+     * @var CurlHandle cURL resource
      */
     private $curl;
 
     /**
-     * @var array Hash of HTTP request headers.
+     * @var array<int, string> Hash of HTTP request headers.
      */
     private $headers = [];
 
     /**
-     * @var array Hash of headers from HTTP response
+     * @var array<string, string> Hash of headers from HTTP response. Will overwrite headers with duplicates keys eg. it is
+     * common for a response to have multiple 'set-cookie' headers and only the last one will be kept.
      */
     private $responseHeaders = [];
+
+    /**
+     * @var array<string, string[]> Returns all response headers grouped by their header key. This preserves all response headers.
+     */
+    private array $responseHeadersList = [];
 
     /**
      * The status line of the response.
@@ -78,11 +86,13 @@ class Connection
 
     /**
      * Determines whether the response body should be returned as a raw string.
+     * @var bool
      */
     private $rawResponse = false;
 
     /**
      * Determines the default content type to use with requests and responses.
+     * @var string
      */
     private $contentType;
 
@@ -116,6 +126,7 @@ class Connection
      * as XML. Defaults to false (using JSON).
      *
      * @param bool $option the new state of this feature
+     * @return void
      */
     public function useXml($option = true)
     {
@@ -133,6 +144,7 @@ class Connection
      * as urlencoded form data.
      *
      * @param bool $option the new state of this feature
+     * @return void
      */
     public function useUrlEncoded($option = true)
     {
@@ -155,6 +167,7 @@ class Connection
      * as this fails fast, making the HTTP body and headers inaccessible.</em></p>
      *
      * @param bool $option the new state of this feature
+     * @return void
      */
     public function failOnError($option = true)
     {
@@ -166,6 +179,7 @@ class Connection
      *
      * @param string $username
      * @param string $password
+     * @return void
      */
     public function authenticateBasic($username, $password)
     {
@@ -177,6 +191,7 @@ class Connection
      *
      * @param string $clientId
      * @param string $authToken
+     * @return void
      */
     public function authenticateOauth($clientId, $authToken)
     {
@@ -189,6 +204,7 @@ class Connection
      * request takes longer than this to respond.
      *
      * @param int $timeout number of seconds to wait on a response
+     * @return void
      */
     public function setTimeout($timeout)
     {
@@ -201,6 +217,7 @@ class Connection
      *
      * @param string $server
      * @param int|bool $port optional port number
+     * @return void
      */
     public function useProxy($server, $port = false)
     {
@@ -213,7 +230,8 @@ class Connection
 
     /**
      * @todo may need to handle CURLOPT_SSL_VERIFYHOST and CURLOPT_CAINFO as well
-     * @param boolean
+     * @param bool $option Whether to verify the peer's SSL certificate
+     * @return void
      */
     public function verifyPeer($option = false)
     {
@@ -225,6 +243,7 @@ class Connection
      *
      * @param string $header
      * @param string $value
+     * @return void
      */
     public function addHeader($header, $value)
     {
@@ -235,6 +254,7 @@ class Connection
      * Remove a header from the request.
      *
      * @param string $header
+     * @return void
      */
     public function removeHeader($header)
     {
@@ -244,7 +264,7 @@ class Connection
     /**
      * Return the request headers
      *
-     * @return array
+     * @return array<int, string>
      */
     public function getRequestHeaders()
     {
@@ -255,6 +275,7 @@ class Connection
      * Get the MIME type that should be used for this request.
      *
      * Defaults to application/json
+     * @return string
      */
     private function getContentType()
     {
@@ -264,11 +285,14 @@ class Connection
     /**
      * Clear previously cached request data and prepare for
      * making a fresh request.
+     * @return void
      */
     private function initializeRequest()
     {
         $this->responseBody = '';
         $this->responseHeaders = [];
+        $this->responseHeadersList = [];
+        $this->responseStatusLine = '';
         $this->lastError = false;
         $this->addHeader('Accept', $this->getContentType());
 
@@ -284,6 +308,8 @@ class Connection
      *
      * If failOnError is true, a client or server error is raised, otherwise returns false
      * on error.
+     *
+     * @return mixed
      */
     private function handleResponse()
     {
@@ -321,6 +347,7 @@ class Connection
     /**
      * Return an representation of an error returned by the last request, or false
      * if the last request was not an error.
+     * @return false|string
      */
     public function getLastError()
     {
@@ -333,6 +360,7 @@ class Connection
      *
      * Only 301 and 302 redirects are handled. Redirects from POST and PUT requests will
      * be converted into GET requests, as per the HTTP spec.
+     * @return void
      */
     private function followRedirectPath()
     {
@@ -364,7 +392,7 @@ class Connection
      * Make an HTTP GET request to the specified endpoint.
      *
      * @param string $url URL to retrieve
-     * @param array|bool $query Optional array of query string parameters
+     * @param array<string, string>|bool $query Optional array of query string parameters
      *
      * @return mixed
      */
@@ -495,7 +523,7 @@ class Connection
     /**
      * Method that appears unused, but is in fact called by curl
      *
-     * @param resource $curl
+     * @param CurlHandle $curl
      * @param string $body
      * @return int
      */
@@ -508,7 +536,7 @@ class Connection
     /**
      * Method that appears unused, but is in fact called by curl
      *
-     * @param resource $curl
+     * @param CurlHandle $curl
      * @param string $headers
      * @return int
      */
@@ -519,6 +547,8 @@ class Connection
         } else {
             $parts = explode(': ', $headers);
             if (isset($parts[1])) {
+                $key = strtolower(trim($parts[0]));
+                $this->responseHeadersList[$key][] = trim($parts[1]);
                 $this->responseHeaders[$parts[0]] = trim($parts[1]);
             }
         }
@@ -576,7 +606,8 @@ class Connection
     }
 
     /**
-     * Return the full list of response headers
+     * Return an associative array of response headers. Will overwrite headers that share the same key.
+     * @return array<string, string>
      */
     public function getHeaders()
     {
@@ -584,10 +615,21 @@ class Connection
     }
 
     /**
+     * Return full list of response headers as an array of strings. Preserves headers with duplicate keys.
+     * @return array<string, string[]>
+     */
+    public function getHeadersList()
+    {
+        return $this->responseHeadersList;
+    }
+
+    /**
      * Close the cURL resource when the instance is garbage collected
      */
     public function __destruct()
     {
-        curl_close($this->curl);
+        if ($this->curl !== null) {
+            curl_close($this->curl);
+        }
     }
 }
