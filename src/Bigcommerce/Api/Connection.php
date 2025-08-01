@@ -330,7 +330,7 @@ class Connection
             }
         } elseif ($status >= 500 && $status <= 599) {
             if ($this->failOnError) {
-                throw new ServerError($body, $status, $this->responseHeaders);
+                throw new ServerError($body ?? '', $status, $this->responseHeaders);
             } else {
                 $this->lastError = $body;
                 return false;
