@@ -4,7 +4,7 @@ orbs:
   ci: bigcommerce/internal@volatile
   php: bigcommerce/internal-php@volatile
 
-define: &php_min "8.1"
+define: &php_min "8.2"
 
 jobs_default: &jobs_default
   e:
@@ -12,7 +12,7 @@ jobs_default: &jobs_default
     php-version: << matrix.php-version >>
   matrix:
     parameters:
-      php-version: [ *php_min, "8.2", "8.3" , "8.4" ]
+      php-version: [ *php_min, "8.3", "8.4", "8.5" ]
 
 jobs:
   cs-fixer:
