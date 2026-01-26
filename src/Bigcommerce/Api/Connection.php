@@ -622,14 +622,4 @@ class Connection
     {
         return $this->responseHeadersList;
     }
-
-    /**
-     * Close the cURL resource when the instance is garbage collected
-     */
-    public function __destruct()
-    {
-        if ($this->curl !== null) {
-            curl_close($this->curl);
-        }
-    }
 }
