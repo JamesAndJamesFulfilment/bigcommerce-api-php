@@ -103,10 +103,11 @@ class ClientTest extends TestCase
 
     public function testGetCustomerLoginTokenReturnsValidLoginToken()
     {
-        Client::configureOAuth(['client_id' => '123', 'auth_token' => 'def', 'store_hash' => 'abc', 'client_secret' => 'zyx']);
+        $clientSecret = 'zyx-test-secret-key-that-is-long-enough-for-hs256';
+        Client::configureOAuth(['client_id' => '123', 'auth_token' => 'def', 'store_hash' => 'abc', 'client_secret' => $clientSecret]);
         $expectedPayload = ['iss' => '123', 'operation' => 'customer_login', 'store_hash' => 'abc', 'customer_id' => 1];
         $token = Client::getCustomerLoginToken(1);
-        $key = new \Firebase\JWT\Key('zyx', 'HS256');
+        $key = new \Firebase\JWT\Key($clientSecret, 'HS256');
         $actualPayload = (array)\Firebase\JWT\JWT::decode($token, $key);
         foreach ($expectedPayload as $value) {
             $this->assertContains($value, $actualPayload);
