@@ -2,7 +2,8 @@
 
 namespace Bigcommerce\Api;
 
-use \Exception as Exception;
+use DateTime;
+use Exception;
 use Firebase\JWT\JWT;
 
 /**
@@ -34,7 +35,7 @@ class Client
     /**
      * Connection instance
      *
-     * @var Connection
+     * @var Connection|false
      */
     private static $connection;
 
@@ -58,12 +59,19 @@ class Client
      * @var string
      */
     public static $api_path;
+    /** @var string The OAuth client ID */
     private static $client_id;
+    /** @var string The store hash */
     private static $store_hash;
+    /** @var string The OAuth Auth-Token */
     private static $auth_token;
+    /** @var string */
     private static $client_secret;
+    /** @var string URL pathname prefix for the V2 API */
     private static $stores_prefix = '/stores/%s/v2';
+    /** @var string The BigCommerce store management API host */
     private static $api_url = 'https://api.bigcommerce.com';
+    /** @var string The BigCommerce merchant login URL */
     private static $login_url = 'https://login.bigcommerce.com';
 
     /**
@@ -72,7 +80,8 @@ class Client
      *
      * Accepts OAuth and (for now!) Basic Auth credentials
      *
-     * @param array $settings
+     * @param array<string, string> $settings
+     * @return void
      */
     public static function configure($settings)
     {
@@ -92,7 +101,8 @@ class Client
      * - auth_token
      * - store_hash
      *
-     * @param array $settings
+     * @param array<string, string> $settings
+     * @return void
      * @throws \Exception
      */
     public static function configureOAuth($settings)
@@ -105,11 +115,19 @@ class Client
             throw new Exception("'store_hash' must be provided");
         }
 
+        if (isset($settings['api_url'])) {
+            self::$api_url = $settings['api_url'];
+        }
+
+        if (isset($settings['login_url'])) {
+            self::$login_url = $settings['login_url'];
+        }
+
         self::$client_id = $settings['client_id'];
         self::$auth_token = $settings['auth_token'];
         self::$store_hash = $settings['store_hash'];
 
-        self::$client_secret = isset($settings['client_secret']) ? $settings['client_secret'] : null;
+        self::$client_secret = $settings['client_secret'] ?? null;
 
         self::$api_path = self::$api_url . sprintf(self::$stores_prefix, self::$store_hash);
         self::$connection = false;
@@ -124,7 +142,8 @@ class Client
      * - username
      * - api_key
      *
-     * @param array $settings
+     * @param array<string, string> $settings
+     * @return void
      * @throws \Exception
      */
     public static function configureBasicAuth(array $settings)
@@ -154,6 +173,7 @@ class Client
      * Note that network faults will always cause an exception to be thrown.
      *
      * @param bool $option sets the value of this flag
+     * @return void
      */
     public static function failOnError($option = true)
     {
@@ -162,6 +182,7 @@ class Client
 
     /**
      * Return XML strings from the API instead of building objects.
+     * @return void
      */
     public static function useXml()
     {
@@ -171,6 +192,7 @@ class Client
     /**
      * Return JSON objects from the API instead of XML Strings.
      * This is the default behavior.
+     * @return void
      */
     public static function useJson()
     {
@@ -181,6 +203,7 @@ class Client
      * Switch SSL certificate verification on requests.
      *
      * @param bool $option sets the value of this flag
+     * @return void
      */
     public static function verifyPeer($option = false)
     {
@@ -192,6 +215,7 @@ class Client
      *
      * @param string $host host server
      * @param int|bool $port port number to use, or false
+     * @return void
      */
     public static function useProxy($host, $port = false)
     {
@@ -242,9 +266,10 @@ class Client
     /**
      * Set the HTTP connection object. DANGER: This can screw up your Client!
      *
-     * @param Connection $connection The connection to use
+     * @param Connection|null $connection The connection to use
+     * @return void
      */
-    public static function setConnection(Connection $connection = null)
+    public static function setConnection(?Connection $connection = null)
     {
         self::$connection = $connection;
     }
@@ -341,8 +366,8 @@ class Client
      * Internal method to wrap items in a collection to resource classes.
      *
      * @param string $resource name of the resource class
-     * @param array $object object collection
-     * @return array
+     * @param mixed $object object collection
+     * @return Resource[]
      */
     private static function mapCollection($resource, $object)
     {
@@ -373,8 +398,8 @@ class Client
      * Map a single object to a resource class.
      *
      * @param string $resource name of the resource class
-     * @param \stdClass $object
-     * @return Resource
+     * @param \stdClass|boolean|string $object
+     * @return bool|\stdClass|string
      */
     private static function mapResource($resource, $object)
     {
@@ -390,8 +415,8 @@ class Client
     /**
      * Map object representing a count to an integer value.
      *
-     * @param \stdClass $object
-     * @return int
+     * @param \stdClass|boolean|string $object
+     * @return int|boolean
      */
     private static function mapCount($object)
     {
@@ -449,19 +474,38 @@ class Client
     }
 
     /**
-     * Pings the time endpoint to test the connection to a store.
+     * Pings the time endpoint to test the connection to the BigCommerce API.
      *
-     * @return \DateTime
+     * @return ?DateTime
      */
     public static function getTime()
     {
-        $response = self::connection()->get(self::$api_path . '/time');
+        $response = self::connection()->get(self::$api_url . '/time');
 
-        if ($response == false || is_string($response)) {
-            return $response;
+        if (empty($response) || !is_numeric($response)) {
+            return null;
         }
 
-        return new \DateTime("@{$response->time}");
+        // The response from /time is unix time in milliseconds
+        $seconds = floor($response / 1000);
+        $milliseconds = $response % 1000;
+        return DateTime::createFromFormat('U.u', sprintf('%d.%03d', $seconds, $milliseconds));
+    }
+
+    /**
+     * Pings the time endpoint to test the connection to a store.
+     *
+     * @return ?DateTime
+     */
+    public static function getStoreTime()
+    {
+        $response = self::connection()->get(self::$api_path . '/time');
+
+        if (!is_object($response) || !property_exists($response, 'time')) {
+            return null;
+        }
+
+        return new DateTime("@{$response->time}");
     }
 
     /**
@@ -484,7 +528,7 @@ class Client
      */
     public static function getProductImages($id)
     {
-        return self::getCollection('/products/' . $id . '/images/', 'ProductImage');
+        return self::getCollection('/products/' . $id . '/images', 'ProductImage');
     }
 
     /**
@@ -1332,7 +1376,7 @@ class Client
      * last request that was fetched within the current script. If no
      * requests have been made, pings the time endpoint to get the value.
      *
-     * @return int
+     * @return int|false
      */
     public static function getRequestsRemaining()
     {
@@ -2053,7 +2097,7 @@ class Client
         $filter = Filter::create($filter);
         return self::getCollection('/products/'.$productId.'/skus' . $filter->toQuery(), 'Sku');
     }
-    
+
     /**
      * Delete the given optionValue.
      *
@@ -2065,7 +2109,7 @@ class Client
     {
         return self::deleteResource('/options/' . $optionId .'/values/'. $valueId);
     }
-    
+
     /**
      * Return the collection of all option values By OptionID
      *
@@ -2078,7 +2122,7 @@ class Client
         $filter = Filter::create($filter);
         return self::getCollection('/options/' . $optionId . '/values' . $filter->toQuery(), 'OptionValue');
     }
-    
+
     /**
      * Get collection of product rules by ProductId
      *
